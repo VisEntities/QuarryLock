@@ -62,7 +62,7 @@ To determine which part of the quarry or pump jack the code lock was deployed on
 
 ## Screenshots
 
-![](https://i.ibb.co/GpWmnmZ/Group-1069.png)
+![](https://i.ibb.co/mhKgHD0/Group-1069.png)
 
 ----------------------
 
