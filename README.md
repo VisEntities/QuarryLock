@@ -13,12 +13,6 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
 
 ------------------
 
-## Screenshots
-
-![](https://i.ibb.co/GpWmnmZ/Group-1069.png)
-
---------------------
-
 ## Permissions
 
 * `quarrylock.admin` - Allows bypassing locked quarries and pump jacks owned by other players, enabling the toggling of the engine or the looting of storage containers.
@@ -64,6 +58,13 @@ To determine which part of the quarry or pump jack the code lock was deployed on
 ```
 
 ------------------
+
+
+## Screenshots
+
+![](https://i.ibb.co/GpWmnmZ/Group-1069.png)
+
+----------------------
 
 ## Credits
  * Rewritten from scratch and maintained to present by **VisEntities**
