@@ -1,6 +1,6 @@
 This plugin enables players to deploy code locks onto quarries and pump jacks in the same way code locks are deployed on doors and containers (no commands required).
 
-[Demonstration](https://youtu.be/9xzvF_8921M)
+[Demonstration](https://i.ibb.co/GpWmnmZ/Group-1069.png)
 
 -------------
 
