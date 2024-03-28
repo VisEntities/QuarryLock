@@ -14,7 +14,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Quarry Lock", "VisEntities", "2.0.0")]
+    [Info("Quarry Lock", "VisEntities", "2.1.0")]
     [Description("Deploy code locks onto quarries and pump jacks.")]
     public class QuarryLock : RustPlugin
     {
@@ -33,6 +33,9 @@ namespace Oxide.Plugins
         private const int ITEM_ID_CODE_LOCK = 1159991980;
 
         private const string PREFAB_CODE_LOCK = "assets/prefabs/locks/keypad/lock.code.prefab";
+
+        private const string PREFAB_QUARRY_STATIC = "assets/bundled/prefabs/static/miningquarry_static.prefab";
+        private const string PREFAB_PUMP_JACK_STATIC = "assets/bundled/prefabs/static/pumpjack-static.prefab";
 
         private const string PREFAB_QUARRY = "assets/prefabs/deployable/quarry/mining_quarry.prefab";
         private const string PREFAB_QUARRY_ENGINE = "assets/prefabs/deployable/quarry/engineswitch.prefab";
@@ -57,6 +60,9 @@ namespace Oxide.Plugins
 
             [JsonProperty("Enable Auto Locking On Placement")]
             public bool EnableAutoLockingOnPlacement { get; set; }
+
+            [JsonProperty("Enable Lock Placement On Static Extractors")]
+            public bool EnableLockPlacementOnStaticExtractors { get; set; }
 
             [JsonProperty("Auto Authorize Team")]
             public bool AutoAuthorizeTeam { get; set; }
@@ -95,6 +101,11 @@ namespace Oxide.Plugins
             if (string.Compare(_config.Version, "1.0.0") < 0)
                 _config = defaultConfig;
 
+            if (string.Compare(_config.Version, "2.1.0") < 0)
+            {
+                _config.EnableLockPlacementOnStaticExtractors = defaultConfig.EnableLockPlacementOnStaticExtractors;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -105,8 +116,9 @@ namespace Oxide.Plugins
             {
                 Version = Version.ToString(),
                 EnableAutoLockingOnPlacement = false,
+                EnableLockPlacementOnStaticExtractors = false,
                 AutoAuthorizeTeam = true,
-                AutoAuthorizeClan = false
+                AutoAuthorizeClan = false,
             };
         }
 
@@ -136,10 +148,17 @@ namespace Oxide.Plugins
                 return null;
 
             CodeLock existingCodeLock = storageContainer.GetSlot(BaseEntity.Slot.Lock) as CodeLock;
+            bool isStatic = StaticResourceExtractor(miningQuarry);
             Item item = player.GetActiveItem();
 
             if (existingCodeLock == null && item != null && item.info.itemid == ITEM_ID_CODE_LOCK)
             {
+                if (isStatic && !_config.EnableLockPlacementOnStaticExtractors)
+                {
+                    SendReplyToPlayer(player, Lang.StaticExtractorLockingBlocked);
+                    return true;
+                }
+
                 Vector3 localPosition;
                 Quaternion localRotation;
 
@@ -214,30 +233,48 @@ namespace Oxide.Plugins
                 return null;
 
             CodeLock existingCodeLock = engineSwitch.GetSlot(BaseEntity.Slot.Lock) as CodeLock;
+            bool isStatic = StaticResourceExtractor(miningQuarry);
             Item item = player.GetActiveItem();
 
             if (existingCodeLock == null && item != null && item.info.itemid == ITEM_ID_CODE_LOCK)
             {
+                if (isStatic && !_config.EnableLockPlacementOnStaticExtractors)
+                {
+                    SendReplyToPlayer(player, Lang.StaticExtractorLockingBlocked);
+                    return true;
+                }
+
                 Vector3 localPosition;
                 Quaternion localRotation;
 
-                switch (engineSwitch.PrefabName)
+                if (engineSwitch.PrefabName == PREFAB_QUARRY_ENGINE)
                 {
-                    case PREFAB_QUARRY_ENGINE:
-                        {
-                            localPosition = new Vector3(0.07f, 0.91f, -0.70f);
-                            localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
-                            break;
-                        }
-                    case PREFAB_PUMP_JACK_ENGINE:
-                        {
-                            localPosition = new Vector3(0.38f, 0.87f, -0.68f);
-                            localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
-                            break;
-                        }
-                    default:
-                        return null;
+                    if (isStatic)
+                    {
+                        localPosition = new Vector3(0.29f, 0.82f, 0.07f);
+                        localRotation = Quaternion.Euler(0.0f, 0.0f, 0.0f);
+                    }
+                    else
+                    {
+                        localPosition = new Vector3(0.07f, 0.91f, -0.70f);
+                        localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                    }
                 }
+                else if (engineSwitch.PrefabName == PREFAB_PUMP_JACK_ENGINE)
+                {
+                    if (isStatic)
+                    {
+                        localPosition = new Vector3(0.06f, 0.36f, -0.28f);
+                        localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                    }
+                    else
+                    {
+                        localPosition = new Vector3(0.38f, 0.87f, -0.68f);
+                        localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                    }
+                }
+                else
+                    return null;
 
                 CodeLock codeLock = DeployCodeLock(player, engineSwitch, localPosition, localRotation);
                 if (codeLock != null)
@@ -429,6 +466,11 @@ namespace Oxide.Plugins
         #endregion Helper Classes
 
         #region Helper Functions
+        
+        private bool StaticResourceExtractor(BaseResourceExtractor resourceExtractor)
+        {
+            return resourceExtractor.PrefabName.Contains("static");
+        }
 
         private static void RunEffect(string prefab, Vector3 worldPosition = default(Vector3), Vector3 worldDirection = default(Vector3), Connection effectRecipient = null, bool sendToAll = false)
         {
@@ -454,6 +496,7 @@ namespace Oxide.Plugins
             public const string AutoLocked = "AutoLocked";
             public const string TeamAuthorized = "TeamAuthorized";
             public const string ClanAuthorized = "ClanAuthorized";
+            public const string StaticExtractorLockingBlocked = "StaticExtractorLockingBlocked";
         }
 
         protected override void LoadDefaultMessages()
@@ -464,7 +507,8 @@ namespace Oxide.Plugins
                 [Lang.CodeLockDeployed] = "Code lock deployed successfully.",
                 [Lang.AutoLocked] = "Auto locked with code: <color=#FABE28>{0}</color>.",
                 [Lang.TeamAuthorized] = "Your team members have been automatically whitelisted on this code lock.",
-                [Lang.ClanAuthorized] = "Your clan members have been automatically whitelisted on this code lock."
+                [Lang.ClanAuthorized] = "Your clan members have been automatically whitelisted on this code lock.",
+                [Lang.StaticExtractorLockingBlocked] = "Cannot place code locks on static resource extractors."
             }, this, "en");
         }
 
