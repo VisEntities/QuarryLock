@@ -3,7 +3,10 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Plugins;
+using ProtoBuf;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
@@ -14,14 +17,14 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Quarry Lock", "VisEntities", "2.1.0")]
+    [Info("Quarry Lock", "VisEntities", "2.2.0")]
     [Description("Deploy code locks onto quarries and pump jacks.")]
     public class QuarryLock : RustPlugin
     {
         #region 3rd Party Dependencies
 
         [PluginReference]
-        private readonly Plugin Clans;
+        private readonly Plugin Clans, Friends;
 
         #endregion 3rd Party Dependencies
 
@@ -29,23 +32,17 @@ namespace Oxide.Plugins
 
         private static QuarryLock _plugin;
         private static Configuration _config;
+        private Coroutine _codeLockParentUpdateCoroutine;
 
         private const int ITEM_ID_CODE_LOCK = 1159991980;
 
         private const string PREFAB_CODE_LOCK = "assets/prefabs/locks/keypad/lock.code.prefab";
-
-        private const string PREFAB_QUARRY_STATIC = "assets/bundled/prefabs/static/miningquarry_static.prefab";
-        private const string PREFAB_PUMP_JACK_STATIC = "assets/bundled/prefabs/static/pumpjack-static.prefab";
-
-        private const string PREFAB_QUARRY = "assets/prefabs/deployable/quarry/mining_quarry.prefab";
         private const string PREFAB_QUARRY_ENGINE = "assets/prefabs/deployable/quarry/engineswitch.prefab";
-        private const string PREFAB_QUARRY_FUEL_STORAGE = "assets/prefabs/deployable/quarry/fuelstorage.prefab";
-        private const string PREFAB_QUARRY_HOPPER_OUTPUT = "assets/prefabs/deployable/quarry/hopperoutput.prefab";
-
-        private const string PREFAB_PUMP_JACK = "assets/prefabs/deployable/oil jack/mining.pumpjack.prefab";
+        private const string PREFAB_QUARRY_FUEL = "assets/prefabs/deployable/quarry/fuelstorage.prefab";
+        private const string PREFAB_QUARRY_HOPPER = "assets/prefabs/deployable/quarry/hopperoutput.prefab";
         private const string PREFAB_PUMP_JACK_ENGINE = "assets/prefabs/deployable/oil jack/engineswitch.prefab";
-        private const string PREFAB_PUMP_JACK_FUEL_STORAGE = "assets/prefabs/deployable/oil jack/fuelstorage.prefab";
-        private const string PREFAB_PUMP_JACK_CRUDE_OUTPUT = "assets/prefabs/deployable/oil jack/crudeoutput.prefab";
+        private const string PREFAB_PUMP_JACK_FUEL = "assets/prefabs/deployable/oil jack/fuelstorage.prefab";
+        private const string PREFAB_PUMP_JACK_HOPPER = "assets/prefabs/deployable/oil jack/crudeoutput.prefab";
 
         private const string FX_CODE_LOCK_DEPLOY = "assets/prefabs/locks/keypad/effects/lock-code-deploy.prefab";
         
@@ -64,11 +61,14 @@ namespace Oxide.Plugins
             [JsonProperty("Enable Lock Placement On Static Extractors")]
             public bool EnableLockPlacementOnStaticExtractors { get; set; }
 
-            [JsonProperty("Auto Authorize Team")]
-            public bool AutoAuthorizeTeam { get; set; }
+            [JsonProperty("Auto Authorize Teammates")]
+            public bool AutoAuthorizeTeammates { get; set; }
 
-            [JsonProperty("Auto Authorize Clan")]
-            public bool AutoAuthorizeClan { get; set; }
+            [JsonProperty("Auto Authorize Friends")]
+            public bool AutoAuthorizeFriends { get; set; }
+
+            [JsonProperty("Auto Authorize Clanmates")]
+            public bool AutoAuthorizeClanmates { get; set; }
         }
 
         protected override void LoadConfig()
@@ -106,6 +106,11 @@ namespace Oxide.Plugins
                 _config.EnableLockPlacementOnStaticExtractors = defaultConfig.EnableLockPlacementOnStaticExtractors;
             }
 
+            if (string.Compare(_config.Version, "2.2.0") < 0)
+            {
+                _config.AutoAuthorizeFriends = defaultConfig.AutoAuthorizeFriends;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -117,8 +122,9 @@ namespace Oxide.Plugins
                 Version = Version.ToString(),
                 EnableAutoLockingOnPlacement = false,
                 EnableLockPlacementOnStaticExtractors = false,
-                AutoAuthorizeTeam = true,
-                AutoAuthorizeClan = false,
+                AutoAuthorizeTeammates = true,
+                AutoAuthorizeFriends = false,
+                AutoAuthorizeClanmates = false,
             };
         }
 
@@ -134,8 +140,17 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
+            StopCoroutine();
             _config = null;
             _plugin = null;
+        }
+
+        private void OnServerInitialized(bool isStartup)
+        {
+            if (!isStartup)
+                return;
+            
+            StartCoroutine();      
         }
 
         private object CanLootEntity(BasePlayer player, ResourceExtractorFuelStorage storageContainer)
@@ -146,9 +161,9 @@ namespace Oxide.Plugins
             MiningQuarry miningQuarry = storageContainer.GetParentEntity() as MiningQuarry;
             if (miningQuarry == null)
                 return null;
-
+           
             CodeLock existingCodeLock = storageContainer.GetSlot(BaseEntity.Slot.Lock) as CodeLock;
-            bool isStatic = StaticResourceExtractor(miningQuarry);
+            bool isStatic = miningQuarry.isStatic;
             Item item = player.GetActiveItem();
 
             if (existingCodeLock == null && item != null && item.info.itemid == ITEM_ID_CODE_LOCK)
@@ -164,25 +179,25 @@ namespace Oxide.Plugins
 
                 switch (storageContainer.PrefabName)
                 {
-                    case PREFAB_QUARRY_FUEL_STORAGE:
+                    case PREFAB_QUARRY_FUEL:
                         {
                             localPosition = new Vector3(0.45f, 0.65f, 0.50f);
                             localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
                             break;
                         }
-                    case PREFAB_QUARRY_HOPPER_OUTPUT:
+                    case PREFAB_QUARRY_HOPPER:
                         {
                             localPosition = new Vector3(-0.03f, 1.9f, 1.3f);
                             localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
                             break;
                         }
-                    case PREFAB_PUMP_JACK_FUEL_STORAGE:
+                    case PREFAB_PUMP_JACK_FUEL:
                         {
                             localPosition = new Vector3(-0.70f, 0.56f, 0.49f);
                             localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
                             break;
                         }
-                    case PREFAB_PUMP_JACK_CRUDE_OUTPUT:
+                    case PREFAB_PUMP_JACK_HOPPER:
                         {
                             localPosition = new Vector3(0.29f, 0.60f, 0.001f);
                             localRotation = Quaternion.Euler(0.0f, 0.0f, 0.0f);
@@ -192,13 +207,12 @@ namespace Oxide.Plugins
                         return null;
                 }
 
-                CodeLock codeLock = DeployCodeLock(player, storageContainer, localPosition, localRotation);
+                CodeLock codeLock = DeployCodeLock(player, item, storageContainer, localPosition, localRotation);
                 if (codeLock != null)
                 {
                     item.UseItem(1);
                     // For compatibility with plugins that utilize the 'OnItemDeployed' hook.
                     Interface.CallHook("OnItemDeployed", item.GetHeldEntity(), miningQuarry, codeLock);
-                    
                     return true;
                 }
             }
@@ -228,12 +242,12 @@ namespace Oxide.Plugins
             if (miningQuarry == null || player == null)
                 return null;
 
-            EngineSwitch engineSwitch = miningQuarry.GetComponentInChildren<EngineSwitch>();
+            EngineSwitch engineSwitch = miningQuarry.engineSwitchPrefab.instance as EngineSwitch;
             if (engineSwitch == null)
                 return null;
 
             CodeLock existingCodeLock = engineSwitch.GetSlot(BaseEntity.Slot.Lock) as CodeLock;
-            bool isStatic = StaticResourceExtractor(miningQuarry);
+            bool isStatic = miningQuarry.isStatic;
             Item item = player.GetActiveItem();
 
             if (existingCodeLock == null && item != null && item.info.itemid == ITEM_ID_CODE_LOCK)
@@ -276,13 +290,12 @@ namespace Oxide.Plugins
                 else
                     return null;
 
-                CodeLock codeLock = DeployCodeLock(player, engineSwitch, localPosition, localRotation);
+                CodeLock codeLock = DeployCodeLock(player, item, engineSwitch, localPosition, localRotation);
                 if (codeLock != null)
                 {
                     item.UseItem(1);
                     // For compatibility with plugins that utilize the 'OnItemDeployed' hook.
                     Interface.CallHook("OnItemDeployed", item.GetHeldEntity(), miningQuarry, codeLock);
-                    
                     return true;
                 }
             }
@@ -300,12 +313,12 @@ namespace Oxide.Plugins
 
         #endregion Oxide Hooks
 
-        #region Deploying Code Lock
+        #region Code Lock Deployment
 
-        private CodeLock DeployCodeLock(BasePlayer player, BaseEntity parent, Vector3 localPosition, Quaternion localRotation)
+        private CodeLock DeployCodeLock(BasePlayer player, Item deployerItem, BaseEntity parent, Vector3 localPosition, Quaternion localRotation)
         {
-            Vector3 worldPosition = TransformUtil.LocalToWorldPosition(parent.transform, localPosition);
-            Quaternion worldRotation = TransformUtil.LocalToWorldRotation(parent.transform, localRotation);
+            Vector3 worldPosition = parent.transform.TransformPoint(localPosition);
+            Quaternion worldRotation = parent.transform.rotation * localRotation;
 
             CodeLock codeLock = GameManager.server.CreateEntity(PREFAB_CODE_LOCK, worldPosition, worldRotation) as CodeLock;
             if (codeLock == null)
@@ -313,10 +326,13 @@ namespace Oxide.Plugins
 
             codeLock.OwnerID = player.userID;
 
-            codeLock.SetParent(parent, true, true);
+            codeLock.SetParent(parent, parent.GetSlotAnchorName(BaseEntity.Slot.Lock), true, true);
+            codeLock.OnDeployed(parent, player, deployerItem);
             codeLock.Spawn();
 
             parent.SetSlot(BaseEntity.Slot.Lock, codeLock);
+            // This's necessary because hopper and fuel storage are destroyed and recreated on server restart.
+            parent.EnableSaving(true);
 
             if (_config.EnableAutoLockingOnPlacement)
             {
@@ -327,7 +343,7 @@ namespace Oxide.Plugins
 
                 SendReplyToPlayer(player, Lang.AutoLocked, randomCode);
 
-                if (_config.AutoAuthorizeClan)
+                if (_config.AutoAuthorizeClanmates)
                 {
                     string clanTag = ClanUtil.GetClanTagOfPlayer(player);
                     if (!string.IsNullOrEmpty(clanTag))
@@ -339,19 +355,25 @@ namespace Oxide.Plugins
                             if (members.Count > 0)
                             {
                                 foreach (ulong memberId in members)
-                                {
-                                    if (memberId != player.userID)
-                                    {
-                                        codeLock.whitelistPlayers.Add(memberId);
-                                    }
-                                }
+                                    codeLock.whitelistPlayers.Add(memberId);        
 
                                 SendReplyToPlayer(player, Lang.ClanAuthorized);
                             }
                         }
                     }
                 }
-                if (_config.AutoAuthorizeTeam)
+                if (_config.AutoAuthorizeFriends)
+                {
+                    ulong[] friendsList = FriendUtil.GetFriendsOfPlayer(player.userID);
+                    if (friendsList.Length > 0)
+                    {
+                        foreach (ulong friendId in friendsList)
+                            codeLock.whitelistPlayers.Add(friendId);
+                 
+                        SendReplyToPlayer(player, Lang.FriendsAuthorized);
+                    }
+                }
+                if (_config.AutoAuthorizeTeammates)
                 {
                     if (player.Team != null && player.Team.members.Count > 1)
                     {
@@ -377,8 +399,131 @@ namespace Oxide.Plugins
         {
             return Random.Range(1000, 9999).ToString();
         }
-  
-        #endregion Deploying Code Lock
+
+        #endregion Code Lock Deployment
+
+        #region Coroutine
+
+        private void StartCoroutine()
+        {
+            _codeLockParentUpdateCoroutine = ServerMgr.Instance.StartCoroutine(UpdateAllCodeLockParents());
+        }
+        
+        private void StopCoroutine()
+        {
+            if (_codeLockParentUpdateCoroutine != null)
+            {
+                ServerMgr.Instance.StopCoroutine(_codeLockParentUpdateCoroutine);
+                _codeLockParentUpdateCoroutine = null;
+            }
+        }
+
+        /// <summary>
+        /// Updates the parent of code locks attached to the mining quarry children (engine, hopper, and fuel storage)
+        /// to the new instances created after server restart. This's necessary because these children are destroyed
+        /// and recreated when the server restarts.
+        /// </summary>
+        private IEnumerator UpdateAllCodeLockParents()
+        {
+            foreach (CodeLock codeLock in BaseNetworkable.serverEntities.OfType<CodeLock>())
+            {
+                yield return null;
+
+                if (codeLock == null)
+                    continue;
+
+                BaseEntity parent = codeLock.GetParentEntity();
+                if (parent == null)
+                    continue;
+
+                MiningQuarry miningQuarry = parent.GetParentEntity() as MiningQuarry;
+                if (miningQuarry == null)
+                    continue;
+
+                BaseEntity newParent = null;
+                Vector3 localPosition = Vector3.zero;
+                Quaternion localRotation = Quaternion.identity;
+
+                switch (parent.PrefabName)
+                {
+                    case PREFAB_QUARRY_FUEL:
+                        {
+                            localPosition = new Vector3(0.45f, 0.65f, 0.50f);
+                            localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                            newParent = miningQuarry.fuelStoragePrefab.instance;
+                            break;
+                        }
+                    case PREFAB_QUARRY_HOPPER:
+                        {
+                            localPosition = new Vector3(-0.03f, 1.9f, 1.3f);
+                            localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                            newParent = miningQuarry.hopperPrefab.instance;
+                            break;
+                        }
+                    case PREFAB_PUMP_JACK_FUEL:
+                        {
+                            localPosition = new Vector3(-0.70f, 0.56f, 0.49f);
+                            localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                            newParent = miningQuarry.fuelStoragePrefab.instance;
+                            break;
+                        }
+                    case PREFAB_PUMP_JACK_HOPPER:
+                        {
+                            localPosition = new Vector3(0.29f, 0.60f, 0.001f);
+                            localRotation = Quaternion.Euler(0.0f, 0.0f, 0.0f);
+                            newParent = miningQuarry.hopperPrefab.instance;
+                            break;
+                        }
+                    case PREFAB_QUARRY_ENGINE:
+                        {
+                            if (miningQuarry.isStatic)
+                            {
+                                localPosition = new Vector3(0.29f, 0.82f, 0.07f);
+                                localRotation = Quaternion.Euler(0.0f, 0.0f, 0.0f);
+                                newParent = miningQuarry.engineSwitchPrefab.instance;
+                            }
+                            else
+                            {
+                                localPosition = new Vector3(0.07f, 0.91f, -0.70f);
+                                localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                                newParent = miningQuarry.engineSwitchPrefab.instance;
+                            }
+                            break;
+                        }
+                    case PREFAB_PUMP_JACK_ENGINE:
+                        {
+                            if (miningQuarry.isStatic)
+                            {
+                                localPosition = new Vector3(0.06f, 0.36f, -0.28f);
+                                localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                                newParent = miningQuarry.engineSwitchPrefab.instance;
+                            }
+                            else
+                            {
+                                localPosition = new Vector3(0.38f, 0.87f, -0.68f);
+                                localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
+                                newParent = miningQuarry.engineSwitchPrefab.instance;
+                            }
+                            break;
+                        }
+                }
+
+                if (newParent == null)
+                    continue;
+
+                codeLock.SetParent(null);
+                codeLock.gameObject.Identity();
+
+                codeLock.SetParent(newParent, true, true);
+                codeLock.transform.localPosition = localPosition;
+                codeLock.transform.localRotation = localRotation;
+
+                newParent.SetSlot(BaseEntity.Slot.Lock, codeLock);
+                newParent.EnableSaving(true);
+            }
+        }
+
+        #endregion Coroutine
 
         #region Clan Integration
 
@@ -411,7 +556,22 @@ namespace Oxide.Plugins
 
         #endregion Clan Integration
 
-        #region Helper Classes
+        #region Friend Integration
+
+        private static class FriendUtil
+        {            
+            public static ulong[] GetFriendsOfPlayer(ulong playerId)
+            {
+                if (!VerifyPluginBeingLoaded(_plugin.Friends))
+                    return new ulong[0];
+
+                return (ulong[])_plugin.Friends.Call("GetFriendList", playerId);
+            }
+        }
+
+        #endregion Friend Integration
+
+        #region Permission
 
         private static class PermissionUtil
         {
@@ -428,49 +588,9 @@ namespace Oxide.Plugins
             }
         }
 
-        private static class TransformUtil
-        {
-            public static void WorldToLocal(Transform parentTransform, Transform childTransform, out Vector3 localPosition, out Quaternion localRotation)
-            {
-                localPosition = parentTransform.InverseTransformPoint(childTransform.position);
-                localRotation = Quaternion.Inverse(parentTransform.rotation) * childTransform.rotation;
-            }
-
-            public static void LocalToWorld(Transform parentTransform, Transform childTransform, out Vector3 worldPosition, out Quaternion worldRotation)
-            {
-                worldPosition = parentTransform.TransformPoint(childTransform.localPosition);
-                worldRotation = parentTransform.rotation * childTransform.localRotation;
-            }
-
-            public static Quaternion WorldToLocalRotation(Transform parentTransform, Quaternion worldRotation)
-            {
-                return Quaternion.Inverse(parentTransform.rotation) * worldRotation;
-            }
-
-            public static Vector3 WorldToLocalPosition(Transform parentTransform, Vector3 worldPosition)
-            {
-                return parentTransform.InverseTransformPoint(worldPosition);
-            }
-
-            public static Quaternion LocalToWorldRotation(Transform parentTransform, Quaternion localRotation)
-            {
-                return parentTransform.rotation * localRotation;
-            }
-
-            public static Vector3 LocalToWorldPosition(Transform parentTransform, Vector3 localPosition)
-            {
-                return parentTransform.TransformPoint(localPosition);
-            }
-        }
-
-        #endregion Helper Classes
+        #endregion Permission
 
         #region Helper Functions
-        
-        private bool StaticResourceExtractor(BaseResourceExtractor resourceExtractor)
-        {
-            return resourceExtractor.PrefabName.Contains("static");
-        }
 
         private static void RunEffect(string prefab, Vector3 worldPosition = default(Vector3), Vector3 worldDirection = default(Vector3), Connection effectRecipient = null, bool sendToAll = false)
         {
@@ -496,6 +616,7 @@ namespace Oxide.Plugins
             public const string AutoLocked = "AutoLocked";
             public const string TeamAuthorized = "TeamAuthorized";
             public const string ClanAuthorized = "ClanAuthorized";
+            public const string FriendsAuthorized = "FriendsAuthorized";
             public const string StaticExtractorLockingBlocked = "StaticExtractorLockingBlocked";
         }
 
@@ -508,6 +629,7 @@ namespace Oxide.Plugins
                 [Lang.AutoLocked] = "Auto locked with code: <color=#FABE28>{0}</color>.",
                 [Lang.TeamAuthorized] = "Your team members have been automatically whitelisted on this code lock.",
                 [Lang.ClanAuthorized] = "Your clan members have been automatically whitelisted on this code lock.",
+                [Lang.FriendsAuthorized] = "Your friends have been automatically whitelisted on this code lock.",
                 [Lang.StaticExtractorLockingBlocked] = "Cannot place code locks on static resource extractors."
             }, this, "en");
         }
