@@ -64,11 +64,11 @@ namespace Oxide.Plugins
             [JsonProperty("Auto Authorize Teammates")]
             public bool AutoAuthorizeTeammates { get; set; }
 
-            [JsonProperty("Auto Authorize Friends")]
-            public bool AutoAuthorizeFriends { get; set; }
-
             [JsonProperty("Auto Authorize Clanmates")]
             public bool AutoAuthorizeClanmates { get; set; }
+
+            [JsonProperty("Auto Authorize Friends")]
+            public bool AutoAuthorizeFriends { get; set; }
         }
 
         protected override void LoadConfig()
@@ -221,9 +221,7 @@ namespace Oxide.Plugins
                 if (PermissionUtil.VerifyHasPermission(player, PermissionUtil.ADMIN))
                 {
                     if (!existingCodeLock.whitelistPlayers.Contains(player.userID))
-                    {
                         existingCodeLock.whitelistPlayers.Add(player.userID);
-                    }
 
                     return null;
                 }
@@ -331,7 +329,7 @@ namespace Oxide.Plugins
             codeLock.Spawn();
 
             parent.SetSlot(BaseEntity.Slot.Lock, codeLock);
-            // This's necessary because hopper and fuel storage are destroyed and recreated on server restart.
+            // This's necessary to prevent hopper and fuel storage from being destroyed and recreated on server restart.
             parent.EnableSaving(true);
 
             if (_config.EnableAutoLockingOnPlacement)
@@ -364,7 +362,7 @@ namespace Oxide.Plugins
                 }
                 if (_config.AutoAuthorizeFriends)
                 {
-                    ulong[] friendsList = FriendUtil.GetFriendsOfPlayer(player.userID);
+                    ulong[] friendsList = FriendsUtil.GetFriendsOfPlayer(player.userID);
                     if (friendsList.Length > 0)
                     {
                         foreach (ulong friendId in friendsList)
@@ -556,9 +554,9 @@ namespace Oxide.Plugins
 
         #endregion Clan Integration
 
-        #region Friend Integration
+        #region Friends Integration
 
-        private static class FriendUtil
+        private static class FriendsUtil
         {            
             public static ulong[] GetFriendsOfPlayer(ulong playerId)
             {
@@ -569,7 +567,7 @@ namespace Oxide.Plugins
             }
         }
 
-        #endregion Friend Integration
+        #endregion Friends Integration
 
         #region Permission
 
