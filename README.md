@@ -23,12 +23,13 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
 
 ```json
 {
-  "Version": "2.2.0",
+  "Version": "2.3.0",
+  "Only Quarry Owner Can Place Locks": true,
   "Enable Auto Locking On Placement": true,
   "Enable Lock Placement On Static Extractors": true,
   "Auto Authorize Teammates": true,
-  "Auto Authorize Friends": false,
-  "Auto Authorize Clanmates": false
+  "Auto Authorize Clanmates": false,
+  "Auto Authorize Friends": false
 }
 ```
 
@@ -44,7 +45,8 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
   "TeamAuthorized": "Your team members have been automatically whitelisted on this code lock.",
   "ClanAuthorized": "Your clan members have been automatically whitelisted on this code lock.",
   "FriendsAuthorized": "Your friends have been automatically whitelisted on this code lock.",
-  "StaticExtractorLockingBlocked": "Cannot place code locks on static resource extractors."
+  "StaticExtractorLockingBlocked": "Cannot place code locks on static resource extractors.",
+  "OnlyOwnerCanPlaceLocks": "Only the quarry's owner can place locks on it."
 }
 ```
 
