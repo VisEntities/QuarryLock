@@ -17,7 +17,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Quarry Lock", "VisEntities", "2.2.0")]
+    [Info("Quarry Lock", "VisEntities", "2.3.0")]
     [Description("Deploy code locks onto quarries and pump jacks.")]
     public class QuarryLock : RustPlugin
     {
@@ -54,6 +54,9 @@ namespace Oxide.Plugins
         {
             [JsonProperty("Version")]
             public string Version { get; set; }
+            
+            [JsonProperty("Only Quarry Owner Can Place Locks")]
+            public bool OnlyQuarryOwnerCanPlaceLocks { get; set; }
 
             [JsonProperty("Enable Auto Locking On Placement")]
             public bool EnableAutoLockingOnPlacement { get; set; }
@@ -111,6 +114,11 @@ namespace Oxide.Plugins
                 _config.AutoAuthorizeFriends = defaultConfig.AutoAuthorizeFriends;
             }
 
+            if (string.Compare(_config.Version, "2.3.0") < 0)
+            {
+                _config.OnlyQuarryOwnerCanPlaceLocks = defaultConfig.OnlyQuarryOwnerCanPlaceLocks;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -120,6 +128,7 @@ namespace Oxide.Plugins
             return new Configuration
             {
                 Version = Version.ToString(),
+                OnlyQuarryOwnerCanPlaceLocks = true,
                 EnableAutoLockingOnPlacement = false,
                 EnableLockPlacementOnStaticExtractors = false,
                 AutoAuthorizeTeammates = true,
@@ -163,14 +172,19 @@ namespace Oxide.Plugins
                 return null;
            
             CodeLock existingCodeLock = storageContainer.GetSlot(BaseEntity.Slot.Lock) as CodeLock;
-            bool isStatic = miningQuarry.isStatic;
             Item item = player.GetActiveItem();
 
             if (existingCodeLock == null && item != null && item.info.itemid == ITEM_ID_CODE_LOCK)
             {
-                if (isStatic && !_config.EnableLockPlacementOnStaticExtractors)
+                if (miningQuarry.isStatic && !_config.EnableLockPlacementOnStaticExtractors)
                 {
                     SendReplyToPlayer(player, Lang.StaticExtractorLockingBlocked);
+                    return true;
+                }
+
+                if (miningQuarry.OwnerID != 0 && _config.OnlyQuarryOwnerCanPlaceLocks && player.userID != miningQuarry.OwnerID)
+                {
+                    SendReplyToPlayer(player, Lang.OnlyOwnerCanPlaceLocks);
                     return true;
                 }
 
@@ -245,14 +259,19 @@ namespace Oxide.Plugins
                 return null;
 
             CodeLock existingCodeLock = engineSwitch.GetSlot(BaseEntity.Slot.Lock) as CodeLock;
-            bool isStatic = miningQuarry.isStatic;
             Item item = player.GetActiveItem();
 
             if (existingCodeLock == null && item != null && item.info.itemid == ITEM_ID_CODE_LOCK)
             {
-                if (isStatic && !_config.EnableLockPlacementOnStaticExtractors)
+                if (miningQuarry.isStatic && !_config.EnableLockPlacementOnStaticExtractors)
                 {
                     SendReplyToPlayer(player, Lang.StaticExtractorLockingBlocked);
+                    return true;
+                }
+
+                if (miningQuarry.OwnerID != 0 && _config.OnlyQuarryOwnerCanPlaceLocks && player.userID != miningQuarry.OwnerID)
+                {
+                    SendReplyToPlayer(player, Lang.OnlyOwnerCanPlaceLocks);
                     return true;
                 }
 
@@ -261,7 +280,7 @@ namespace Oxide.Plugins
 
                 if (engineSwitch.PrefabName == PREFAB_QUARRY_ENGINE)
                 {
-                    if (isStatic)
+                    if (miningQuarry.isStatic)
                     {
                         localPosition = new Vector3(0.29f, 0.82f, 0.07f);
                         localRotation = Quaternion.Euler(0.0f, 0.0f, 0.0f);
@@ -274,7 +293,7 @@ namespace Oxide.Plugins
                 }
                 else if (engineSwitch.PrefabName == PREFAB_PUMP_JACK_ENGINE)
                 {
-                    if (isStatic)
+                    if (miningQuarry.isStatic)
                     {
                         localPosition = new Vector3(0.06f, 0.36f, -0.28f);
                         localRotation = Quaternion.Euler(0.0f, 90.0f, 0.0f);
@@ -518,6 +537,8 @@ namespace Oxide.Plugins
 
                 newParent.SetSlot(BaseEntity.Slot.Lock, codeLock);
                 newParent.EnableSaving(true);
+
+                parent.Kill();
             }
         }
 
@@ -616,6 +637,7 @@ namespace Oxide.Plugins
             public const string ClanAuthorized = "ClanAuthorized";
             public const string FriendsAuthorized = "FriendsAuthorized";
             public const string StaticExtractorLockingBlocked = "StaticExtractorLockingBlocked";
+            public const string OnlyOwnerCanPlaceLocks = "OnlyOwnerCanPlaceLocks";
         }
 
         protected override void LoadDefaultMessages()
@@ -628,7 +650,8 @@ namespace Oxide.Plugins
                 [Lang.TeamAuthorized] = "Your team members have been automatically whitelisted on this code lock.",
                 [Lang.ClanAuthorized] = "Your clan members have been automatically whitelisted on this code lock.",
                 [Lang.FriendsAuthorized] = "Your friends have been automatically whitelisted on this code lock.",
-                [Lang.StaticExtractorLockingBlocked] = "Cannot place code locks on static resource extractors."
+                [Lang.StaticExtractorLockingBlocked] = "Cannot place code locks on static resource extractors.",
+                [Lang.OnlyOwnerCanPlaceLocks] = "Only the quarry's owner can place locks on it."
             }, this, "en");
         }
 
