@@ -6,7 +6,7 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
 
 ## Features
 * Players can deploy up to 3 code locks on different parts of the quarry or pump jack, including the engine switch, fuel storage, and resources storage.
-* Automatically grants clan and team members access to use the code lock once deployed.
+* Automatic sharing with teammates, clanmates, and friends.
 * Code locks can be deployed either unlocked (similar to vanilla behavior) or set to lock automatically with a randomly generated code.
 * Compatible with other code lock plugins such as [AutoCode](https://umod.org/plugins/auto-code).
 * Works with both deployable and static quarries.
@@ -23,11 +23,12 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
 
 ```json
 {
-  "Version": "2.1.0",
+  "Version": "2.2.0",
   "Enable Auto Locking On Placement": true,
-  "Auto Authorize Team": true,
-  "Auto Authorize Clan": false,
-  "Enable Lock Placement On Static Extractors": true
+  "Enable Lock Placement On Static Extractors": true,
+  "Auto Authorize Teammates": true,
+  "Auto Authorize Friends": false,
+  "Auto Authorize Clanmates": false
 }
 ```
 
@@ -42,6 +43,7 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
   "AutoLocked": "Auto locked with code: <color=#FABE28>{0}</color>.",
   "TeamAuthorized": "Your team members have been automatically whitelisted on this code lock.",
   "ClanAuthorized": "Your clan members have been automatically whitelisted on this code lock.",
+  "FriendsAuthorized": "Your friends have been automatically whitelisted on this code lock.",
   "StaticExtractorLockingBlocked": "Cannot place code locks on static resource extractors."
 }
 ```
