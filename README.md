@@ -15,7 +15,7 @@ This plugin enables players to deploy code locks onto quarries and pump jacks in
 
 ## Permissions
 
-* `quarrylock.admin` - Allows to loot storage containers and toggle the engine of locked quarries and pump jacks.
+* `quarrylock.admin` - Allows to open any locked quarry or pump jack.
 
 ----------------
 
