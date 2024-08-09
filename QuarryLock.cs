@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Oxide.Core;
 using Oxide.Core.Plugins;
-using ProtoBuf;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,7 +17,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Quarry Lock", "VisEntities", "2.3.0")]
+    [Info("Quarry Lock", "VisEntities", "2.3.1")]
     [Description("Deploy code locks onto quarries and pump jacks.")]
     public class QuarryLock : RustPlugin
     {
@@ -149,7 +149,7 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
-            StopCoroutine();
+            CoroutineUtil.StopAllCoroutines();
             _config = null;
             _plugin = null;
         }
@@ -158,8 +158,8 @@ namespace Oxide.Plugins
         {
             if (!isStartup)
                 return;
-            
-            StartCoroutine();      
+
+            CoroutineUtil.StartCoroutine(Guid.NewGuid().ToString(), UpdateAllCodeLockParentsCoroutine());      
         }
 
         private object CanLootEntity(BasePlayer player, ResourceExtractorFuelStorage storageContainer)
@@ -381,7 +381,7 @@ namespace Oxide.Plugins
                 }
                 if (_config.AutoAuthorizeFriends)
                 {
-                    ulong[] friendsList = FriendsUtil.GetFriendsOfPlayer(player.userID);
+                    ulong[] friendsList = FriendsUtil.GetFriendsOfPlayer((ulong)player.userID);
                     if (friendsList.Length > 0)
                     {
                         foreach (ulong friendId in friendsList)
@@ -419,32 +419,18 @@ namespace Oxide.Plugins
 
         #endregion Code Lock Deployment
 
-        #region Coroutine
-
-        private void StartCoroutine()
-        {
-            _codeLockParentUpdateCoroutine = ServerMgr.Instance.StartCoroutine(UpdateAllCodeLockParents());
-        }
-        
-        private void StopCoroutine()
-        {
-            if (_codeLockParentUpdateCoroutine != null)
-            {
-                ServerMgr.Instance.StopCoroutine(_codeLockParentUpdateCoroutine);
-                _codeLockParentUpdateCoroutine = null;
-            }
-        }
+        #region Code Lock Parent Refresh
 
         /// <summary>
         /// Updates the parent of code locks attached to the mining quarry children (engine, hopper, and fuel storage)
         /// to the new instances created after server restart. This's necessary because these children are destroyed
         /// and recreated when the server restarts.
         /// </summary>
-        private IEnumerator UpdateAllCodeLockParents()
+        private IEnumerator UpdateAllCodeLockParentsCoroutine()
         {
             foreach (CodeLock codeLock in BaseNetworkable.serverEntities.OfType<CodeLock>())
             {
-                yield return null;
+                yield return CoroutineEx.waitForSeconds(0.1f);
 
                 if (codeLock == null)
                     continue;
@@ -542,7 +528,43 @@ namespace Oxide.Plugins
             }
         }
 
-        #endregion Coroutine
+        #endregion Code Lock Parent Refresh
+
+        #region Coroutine Util
+
+        private static class CoroutineUtil
+        {
+            private static readonly Dictionary<string, Coroutine> _activeCoroutines = new Dictionary<string, Coroutine>();
+
+            public static void StartCoroutine(string coroutineName, IEnumerator coroutineFunction)
+            {
+                StopCoroutine(coroutineName);
+
+                Coroutine coroutine = ServerMgr.Instance.StartCoroutine(coroutineFunction);
+                _activeCoroutines[coroutineName] = coroutine;
+            }
+
+            public static void StopCoroutine(string coroutineName)
+            {
+                if (_activeCoroutines.TryGetValue(coroutineName, out Coroutine coroutine))
+                {
+                    if (coroutine != null)
+                        ServerMgr.Instance.StopCoroutine(coroutine);
+
+                    _activeCoroutines.Remove(coroutineName);
+                }
+            }
+
+            public static void StopAllCoroutines()
+            {
+                foreach (string coroutineName in _activeCoroutines.Keys.ToArray())
+                {
+                    StopCoroutine(coroutineName);
+                }
+            }
+        }
+
+        #endregion Coroutine Util
 
         #region Clan Integration
 
