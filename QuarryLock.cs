@@ -32,7 +32,6 @@ namespace Oxide.Plugins
 
         private static QuarryLock _plugin;
         private static Configuration _config;
-        private Coroutine _codeLockParentUpdateCoroutine;
 
         private const int ITEM_ID_CODE_LOCK = 1159991980;
 
